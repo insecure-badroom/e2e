@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AES-GCM + RSA-OAEP Encryption</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f9; }
+        h1, h2 { color: #333; }
+        .container { display: flex; gap: 20px; margin-bottom: 20px; }
+        .key-box, .section { flex: 1; border: 1px solid #ddd; padding: 15px; border-radius: 8px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .key-box h2 { margin-top: 0; padding-bottom: 5px; border-bottom: 1px solid #eee; }
+        code { 
+            display: block; 
+            white-space: pre-wrap; 
+            word-break: break-all; 
+            background-color: #eee; 
+            padding: 10px; 
+            border-radius: 4px; 
+            font-size: 10px; 
+            line-height: 1.3;
+            cursor: pointer;
+        }
+        textarea { width: 100%; height: 100px; padding: 10px; margin-bottom: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: vertical; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 5px; }
+        button:hover { background-color: #0056b3; }
+        .key-info { font-size: 0.8em; color: #555; margin-bottom: 10px; }
+        .input-key-box { margin-bottom: 20px; }
+        #copiedStatus{display:none; color: green; font-weight: bold; margin-top: 5px; font-size: 0.9em;}
+        .counter { font-size: 0.85em; color: #555; margin-bottom: 10px; }
+        .warning-text { color: darkred; font-weight: bold; } /* New style for "Too Long" */
+    </style>
+</head>
+<body>
+    <h1>Cuhassle's End to End Encrypter (Thanks Gemini)</h1>
+    <p>A new key pair is generated on page load. Use the Encryption section to send a message to any user. For security reasons your private key is hidden. This uses Hybrid Encryption (AES-GCM + RSA-OAEP) to securely handle messages of ANY length.</p>
+    <br>
+    <div class="container" style="display:none;">
+        <div class="section">
+            <h2>Save Everything (WIP)</h2>
+        </div>
+    </div>
+    <div class="container">
+        <div class="key-box">
+            <h2>Your Public Key</h2>
+            <div class="key-info">Give this out (Click to Copy)</div>
+            <div id="publicKeyCopyTarget" onclick="copyPublicKey()">
+                <code id="publicKeyOutput">Generating...</code>
+            </div>
+            <div id="copiedStatus">✅ Copied to clipboard!</div>
+        </div>
+        <div class="key-box" style="display:none;">
+            <h2>Your Private Key (Secret)</h2>
+            <div class="key-info">Used to decrypt messages.</div>
+            <code id="privateKeyOutput">Generating...</code>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section">
+            <h2>Encryption (Send a message)</h2>
+            <div class="input-key-box">
+                <p>Paste the Recipient's Public Key here:</p>
+                <textarea id="otherPublicKeyInput" placeholder="Paste the recipient's public key (SPKI format) here."></textarea>
+            </div>
+            
+            <p>Enter plaintext to encrypt (Any Length):</p>
+            <textarea id="plaintextInput" oninput="updateCharCount()" placeholder="Enter the secret message..."></textarea>
+            
+            <div class="counter">
+                Characters: <span id="charCount">0</span>
+            </div>
+            
+            <p class="key-info">Erases your message so nobody can look over your shoulder.</p>
+            <button onclick="encryptText()">Encrypt Text using Recipient's Public Key</button>
+            <p style="margin-top: 15px;">Encrypted (Base64 Hybrid Bundle):</p>
+            <textarea id="ciphertextOutput" readonly placeholder="Encrypted message will appear here..."></textarea>
+        </div>
+
+        <div class="section">
+            <h2>Decryption (Receive a message)</h2>
+            <p>Optional Custom Private Key</p>
+            <textarea id="optionalPrivateKey" placeholder="OPTIONAL Enter custom private key"></textarea>
+            <p>Paste the encrypted text:</p>
+            <textarea id="ciphertextInput" placeholder="Paste the Base64 hybrid bundle here..."></textarea>
+            <button onclick="decryptText()">Decrypt Text using your Private Key</button>
+            <p style="margin-top: 15px;">Decrypted Plaintext:</p>
+            <textarea id="decryptedOutput" readonly placeholder="Decrypted message will appear here..."></textarea>
+        </div>
+    </div>
+    <p class="key-info">v1.2.3</p>
+    <script>
+        // Global variables and constants
+        let privateKey;
+        const RSA_ALGORITHM = "RSA-OAEP"; // For key exchange
+        const AES_ALGORITHM = "AES-GCM"; // For bulk data encryption
+        const AES_IV_LENGTH = 12; // Standard for AES-GCM
+        const MAX_MESSAGE_LENGTH = 10000; // Arbitrary limit for front-end sanity
+
+        // --- Character Counter with Limit ---
+        function updateCharCount() {
+            const textarea = document.getElementById('plaintextInput');
+            const counterElement = document.getElementById('charCount');
+            const count = textarea.value.length;
+            
+            if (count > MAX_MESSAGE_LENGTH) {
+                counterElement.textContent = "Too Long!";
+                counterElement.classList.add('warning-text');
+                alert(`Message exceeds the maximum limit of ${MAX_MESSAGE_LENGTH} characters. Please shorten your message.`);
+            } else {
+                counterElement.textContent = count;
+                counterElement.classList.remove('warning-text');
+                textarea.removeAttribute('disabled');
+            }
+        }
+
+        // --- Utility Functions (Unchanged) ---
+
+        function base64ToArrayBuffer(base64) {
+            const binary_string = window.atob(base64);
+            const len = binary_string.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        function strToArrayBuffer(str) {
+            return new TextEncoder().encode(str);
+        }
+
+        function arrayBufferToStr(buffer) {
+            return new TextDecoder().decode(buffer);
+        }
+
+        // --- Key Generation ---
+
+        async function generateAndDisplayKeys() {
+            try {
+                const keyPair = await crypto.subtle.generateKey(
+                    {
+                        name: RSA_ALGORITHM,
+                        modulusLength: 2048,
+                        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                        hash: "SHA-256",
+                    },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+
+                privateKey = keyPair.privateKey;
+
+                const publicKeyBuffer = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+                const privateKeyBuffer = await crypto.subtle.exportKey("pkcs8", privateKey);
+
+                document.getElementById('publicKeyOutput').textContent = arrayBufferToBase64(publicKeyBuffer);
+                document.getElementById('privateKeyOutput').textContent = arrayBufferToBase64(privateKeyBuffer);
+                
+                updateCharCount(); // Initialize the counter on load
+            } catch (error) {
+                console.error("Error generating keys:", error);
+                document.getElementById('publicKeyOutput').textContent = "ERROR: Failed to generate keys.";
+                document.getElementById('privateKeyOutput').textContent = "ERROR: Failed to generate keys.";
+            }
+        }
+
+        // --- Copy Key Code ---
+
+        function copyPublicKey() {
+            const keyText = document.getElementById('publicKeyOutput').textContent;
+            const statusElement = document.getElementById('copiedStatus');
+            
+            if (keyText.startsWith('Generating')) {
+                alert("Please wait for the key to finish generating.");
+                return;
+            }
+
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(keyText).then(() => {
+                    statusElement.style.display = 'block';
+                    setTimeout(() => {
+                        statusElement.style.display = 'none';
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Could not copy text: ', err);
+                    alert('Copy failed. Your browser might require HTTPS or special permissions.');
+                });
+            } else {
+                // Fallback (for older browsers)
+                const tempTextArea = document.createElement('textarea');
+                tempTextArea.value = keyText;
+                document.body.appendChild(tempTextArea);
+                tempTextArea.select();
+                try {
+                    document.execCommand('copy');
+                    statusElement.style.display = 'block';
+                    setTimeout(() => { statusElement.style.display = 'none'; }, 1500);
+                } catch (err) {
+                    alert('Copy failed. Please select the text manually.');
+                }
+                document.body.removeChild(tempTextArea);
+            }
+        }
+
+        // --- Hybrid Encryption Handler ---
+
+        async function encryptText() {
+            const plaintext = document.getElementById('plaintextInput').value;
+            const publicKeyBase64 = document.getElementById('otherPublicKeyInput').value;
+            
+            if (plaintext.length > MAX_MESSAGE_LENGTH) {
+                 alert("Cannot encrypt: Message is too long.");
+                 return;
+            }
+
+            if (!publicKeyBase64) {
+                alert("Please enter a recipient's Public Key.");
+                return;
+            }
+            
+            try {
+                // 1. Import Recipient's RSA Public Key
+                const publicKeyBuffer = base64ToArrayBuffer(publicKeyBase64);
+                const recipientPublicKey = await crypto.subtle.importKey(
+                    "spki", publicKeyBuffer, { name: RSA_ALGORITHM, hash: "SHA-256" }, true, ["encrypt"]
+                );
+
+                // 2. Generate a fresh, random AES-GCM Key (Symmetric Key)
+                const aesKey = await crypto.subtle.generateKey(
+                    { name: AES_ALGORITHM, length: 256 },
+                    true, ["encrypt", "decrypt"]
+                );
+                
+                // 3. Encrypt the MESSAGE with the AES Key (Symmetric Bulk Encryption)
+                const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH));
+                const plaintextBuffer = strToArrayBuffer(plaintext);
+                
+                const messageCiphertext = await crypto.subtle.encrypt(
+                    { name: AES_ALGORITHM, iv: iv },
+                    aesKey,
+                    plaintextBuffer
+                );
+
+                // 4. Export the AES Key for Asymmetric Encryption
+                const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
+
+                // 5. Encrypt the AES Key with the Recipient's RSA Public Key (Asymmetric Key Exchange)
+                const encryptedKey = await crypto.subtle.encrypt(
+                    { name: RSA_ALGORITHM },
+                    recipientPublicKey,
+                    rawAesKey
+                );
+
+                // 6. Bundle all parts: IV, Encrypted Key, and Message Ciphertext
+                const bundle = [
+                    arrayBufferToBase64(iv),
+                    arrayBufferToBase64(encryptedKey),
+                    arrayBufferToBase64(messageCiphertext)
+                ].join('.');
+
+                document.getElementById('ciphertextOutput').value = bundle;
+                document.getElementById('plaintextInput').value = ""; // Clear plaintext for privacy
+                updateCharCount(); // Update the counter after clearing text
+            } catch (error) {
+                alert("Encryption failed. Check console for details. (Is the key valid?)");
+                console.error("Encryption error:", error);
+            }
+        }
+
+        // --- Hybrid Decryption Handler ---
+
+        async function decryptText() {
+            const bundle = document.getElementById('ciphertextInput').value;
+            
+            if (!privateKey) {
+                alert("Private Key not yet generated! Please refresh the page.");
+                return;
+            }
+
+            try {
+                // 1. Split the bundle into its three parts
+                const parts = bundle.split('.');
+                if (parts.length !== 3) {
+                    throw new Error("Invalid ciphertext format. Missing IV, encrypted key, or message part.");
+                }
+
+                const iv = base64ToArrayBuffer(parts[0]);
+                const encryptedKey = base64ToArrayBuffer(parts[1]);
+                const messageCiphertext = base64ToArrayBuffer(parts[2]);
+
+                // 2. Decrypt the AES Key using User A's RSA Private Key (Asymmetric Key Recovery)
+                const decryptedRawKey = await crypto.subtle.decrypt(
+                    { name: RSA_ALGORITHM },
+                    privateKey,
+                    encryptedKey
+                );
+
+                // 3. Import the decrypted raw key back into a CryptoKey object
+                const aesKey = await crypto.subtle.importKey(
+                    "raw", decryptedRawKey, { name: AES_ALGORITHM, length: 256 }, true, ["encrypt", "decrypt"]
+                );
+
+                // 4. Decrypt the Message using the recovered AES Key (Symmetric Decryption)
+                const decryptedBuffer = await crypto.subtle.decrypt(
+                    { name: AES_ALGORITHM, iv: iv },
+                    aesKey,
+                    messageCiphertext
+                );
+
+                const decryptedText = arrayBufferToStr(decryptedBuffer);
+                document.getElementById('decryptedOutput').value = decryptedText;
+            } catch (error) {
+                alert("Decryption failed. The bundle is invalid, incomplete, or the wrong private key was used.");
+                console.error("Decryption error:", error);
+                document.getElementById('decryptedOutput').value = "!!! DECRYPTION FAILED !!!";
+            }
+        }
+
+        // Initialize the key generation on page load
+        window.onload = generateAndDisplayKeys;
+    </script>
+</body>
+</html>
