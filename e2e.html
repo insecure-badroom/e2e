@@ -44,7 +44,7 @@
         <div class="key-box">
             <h2>Your Public Key</h2>
             <div class="key-info">Give this out (Click to Copy)</div>
-            <div id="publicKeyCopyTarget" onclick="copyPublicKey()">
+            <div id="publicKeyCopyTarget" onclick="copyThis(getElementById('publicKeyOutput').textContent)">
                 <code id="publicKeyOutput">Generating...</code>
             </div>
             <div id="copiedStatus">✅ Copied to clipboard!</div>
@@ -79,7 +79,7 @@
 
         <div class="section">
             <h2>Decryption (Receive a message)</h2>
-            <p>Optional Custom Private Key</p>
+            <p>Optional Custom Private Key (Not Working)</p>
             <textarea id="optionalPrivateKey" placeholder="OPTIONAL Enter custom private key"></textarea>
             <p>Paste the encrypted text:</p>
             <textarea id="ciphertextInput" placeholder="Paste the Base64 hybrid bundle here..."></textarea>
@@ -88,7 +88,7 @@
             <textarea id="decryptedOutput" readonly placeholder="Decrypted message will appear here..."></textarea>
         </div>
     </div>
-    <p class="key-info">v1.2.3</p>
+    <p class="key-info">v1.2.4</p>
     <script>
         // Global variables and constants
         let privateKey;
@@ -110,7 +110,6 @@
             } else {
                 counterElement.textContent = count;
                 counterElement.classList.remove('warning-text');
-                textarea.removeAttribute('disabled');
             }
         }
 
@@ -177,15 +176,8 @@
 
         // --- Copy Key Code ---
 
-        function copyPublicKey() {
-            const keyText = document.getElementById('publicKeyOutput').textContent;
+        function copyThis(keyText) {
             const statusElement = document.getElementById('copiedStatus');
-            
-            if (keyText.startsWith('Generating')) {
-                alert("Please wait for the key to finish generating.");
-                return;
-            }
-
             if (navigator.clipboard) {
                 navigator.clipboard.writeText(keyText).then(() => {
                     statusElement.style.display = 'block';
@@ -220,7 +212,7 @@
             const publicKeyBase64 = document.getElementById('otherPublicKeyInput').value;
             
             if (plaintext.length > MAX_MESSAGE_LENGTH) {
-                 alert("Cannot encrypt: Message is too long.");
+                 alert("Cannot encrypt: WTH did you even try to encrypt?");
                  return;
             }
 
@@ -273,7 +265,7 @@
                 document.getElementById('plaintextInput').value = ""; // Clear plaintext for privacy
                 updateCharCount(); // Update the counter after clearing text
             } catch (error) {
-                alert("Encryption failed. Check console for details. (Is the key valid?)");
+                alert("Encryption failed. (Is the key valid?)");
                 console.error("Encryption error:", error);
             }
         }
